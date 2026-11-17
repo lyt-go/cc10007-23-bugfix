@@ -4,19 +4,40 @@
 """
 from __future__ import annotations
 
+import copy
+import threading
 from typing import Any
 
 from app.seed import SEED_ROWS
+from app.seed_metrics import build_seed_metric_tables
+
+# 指标数据集、异常批次、告警和待处理明细是运营看板/实验变体的内部关联表，
+# 不作为独立业务模块出现在运营概览里。
+INTERNAL_MODULES = {
+    "abmetric_dataset",
+    "abmetric_detail",
+    "ab_batch",
+    "ab_batch_record",
+    "ab_alert",
+    "dashboard_pending",
+}
+
+SEED_MODULES = {**SEED_ROWS, **build_seed_metric_tables()}
 
 
 class Store:
     def __init__(self) -> None:
-        self._tables: dict[str, list[dict[str, Any]]] = {
-            name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
-        }
+        self.lock = threading.RLock()
+        self._tables: dict[str, list[dict[str, Any]]] = copy.deepcopy(SEED_MODULES)
 
-    def module_names(self) -> list[str]:
-        return sorted(self._tables)
+    def reset(self) -> None:
+        """把内存仓库恢复成示例数据；用于演示与回归验证。"""
+        with self.lock:
+            self._tables = copy.deepcopy(SEED_MODULES)
+
+    def module_names(self, *, include_internal: bool = False) -> list[str]:
+        names = self._tables if include_internal else set(self._tables) - INTERNAL_MODULES
+        return sorted(names)
 
     def rows(self, module: str) -> list[dict[str, Any]]:
         return self._tables.setdefault(module, [])
